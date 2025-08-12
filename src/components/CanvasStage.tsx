@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Stage, Layer, Line } from "react-konva";
+import { Stage, Layer, Line, Rect } from "react-konva";
 import type Konva from "konva";
 
 type Vec2 = { x: number; y: number };
@@ -95,6 +95,7 @@ export default function CanvasStage() {
   const [isSpaceDown, setIsSpaceDown] = useState(false);
   const [isMiddlePanning, setIsMiddlePanning] = useState(false);
   const [isLeftPanning, setIsLeftPanning] = useState(false);
+  const [isNodeDragging, setIsNodeDragging] = useState(false);
   const lastPointerRef = useRef<Vec2 | null>(null);
 
   const isPanning = isSpaceDown || isMiddlePanning || isLeftPanning;
@@ -112,37 +113,52 @@ export default function CanvasStage() {
 
   const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
 
-  // No wheel smoothing aggregator; keep simple behavior
-
-  const animateZoomAt = useCallback(
-    (center: Vec2, targetScale: number, duration = 180) => {
-  cancelZoomAnim();
-
+  // Animate full view (scale and position) to targets
+  const animateViewTo = useCallback(
+    (targetScale: number, targetPos: Vec2, duration = 200) => {
+      cancelZoomAnim();
       const startScale = scale;
+      const startPos = { ...pos };
       const endScale = clamp(targetScale, 0.1, 8);
-      const anchorWorld = { x: (center.x - pos.x) / startScale, y: (center.y - pos.y) / startScale };
+      const endPos = targetPos;
       const start = performance.now();
-
       const step = () => {
         const now = performance.now();
         const t = Math.min(1, (now - start) / duration);
         const k = easeOutCubic(t);
         const s = startScale + (endScale - startScale) * k;
+        const x = startPos.x + (endPos.x - startPos.x) * k;
+        const y = startPos.y + (endPos.y - startPos.y) * k;
         setScale(s);
-        setPos({ x: center.x - anchorWorld.x * s, y: center.y - anchorWorld.y * s });
+        setPos({ x, y });
         if (t < 1 && zoomAnimRef.current) {
           zoomAnimRef.current.id = requestAnimationFrame(step);
         } else if (zoomAnimRef.current) {
           zoomAnimRef.current.id = null;
         }
       };
-
       if (zoomAnimRef.current) {
         zoomAnimRef.current.id = requestAnimationFrame(step);
       }
     },
-  [cancelZoomAnim, pos.x, pos.y, scale]
+    [cancelZoomAnim, pos, scale]
   );
+
+  // Animate zoom anchored at a screen-space center point
+  const animateZoomAt = useCallback(
+    (center: Vec2, targetScale: number, duration = 180) => {
+      const endScale = clamp(targetScale, 0.1, 8);
+      const anchorWorld = { x: (center.x - pos.x) / scale, y: (center.y - pos.y) / scale };
+      const targetPos = { x: center.x - anchorWorld.x * endScale, y: center.y - anchorWorld.y * endScale };
+      animateViewTo(endScale, targetPos, duration);
+    },
+    [animateViewTo, pos.x, pos.y, scale]
+  );
+
+  // Demo node setup (snapping utilities)
+  const demoRef = useRef<Konva.Rect>(null);
+  const GRID = 20;
+  const snap = (v: number) => Math.round(v / GRID) * GRID;
 
   // Wheel: zoom with ctrl/meta; otherwise pan
   const onWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
@@ -199,6 +215,38 @@ export default function CanvasStage() {
         return;
       }
 
+      // Reset (0)
+      if (e.key === "0") {
+        e.preventDefault();
+        animateViewTo(1, { x: 0, y: 0 }, 200);
+        return;
+      }
+
+      // Fit-to-view (1) for demo node
+      if (e.key === "1") {
+        e.preventDefault();
+        const node = demoRef.current;
+        if (node) {
+          const rectX = node.x();
+          const rectY = node.y();
+          const rectW = node.width();
+          const rectH = node.height();
+          if (rectW > 0 && rectH > 0) {
+            const padding = 40; // screen-space padding
+            const availW = Math.max(1, width - padding * 2);
+            const availH = Math.max(1, height - padding * 2);
+            const scaleFit = clamp(Math.min(availW / rectW, availH / rectH), 0.1, 8);
+            const centerWorld = { x: rectX + rectW / 2, y: rectY + rectH / 2 };
+            const posFit = {
+              x: width / 2 - centerWorld.x * scaleFit,
+              y: height / 2 - centerWorld.y * scaleFit,
+            };
+            animateViewTo(scaleFit, posFit, 220);
+          }
+        }
+        return;
+      }
+
       // Arrow keys pan (screen space)
       const step = e.shiftKey ? 100 : 50;
       if (e.key === "ArrowLeft") {
@@ -235,10 +283,16 @@ export default function CanvasStage() {
       el.removeEventListener("keydown", onKeyDown);
       el.removeEventListener("keyup", onKeyUp);
     };
-  }, [animateZoomAt, height, isSpaceDown, scale, width]);
+  }, [animateViewTo, animateZoomAt, height, isSpaceDown, scale, width]);
+
+  // Demo node setup moved above
 
   const onMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     const stage = stageRef.current;
+    if (isNodeDragging) {
+      e.cancelBubble = true;
+      return;
+    }
     // Middle mouse: enable Stage drag panning
     if (e.evt.button === 1) {
       cancelZoomAnim();
@@ -256,7 +310,7 @@ export default function CanvasStage() {
         }
       }
     }
-  }, [cancelZoomAnim]);
+  }, [cancelZoomAnim, isNodeDragging]);
   const onMouseUp = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     if (e.evt.button === 1) {
       setIsMiddlePanning(false);
@@ -267,7 +321,13 @@ export default function CanvasStage() {
     }
   }, []);
 
-  const onMouseMove = useCallback((_e: Konva.KonvaEventObject<MouseEvent>) => {
+  const onMouseMove = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (isNodeDragging) {
+      e.cancelBubble = true;
+      // if a node begins dragging after a stage mousedown, stop manual panning
+      if (isLeftPanning) setIsLeftPanning(false);
+      return;
+    }
     if (!isLeftPanning) return;
     const stage = stageRef.current;
     if (!stage) return;
@@ -281,11 +341,12 @@ export default function CanvasStage() {
         lastPointerRef.current = p;
       }
     }
-  }, [isLeftPanning]);
+  }, [isLeftPanning, isNodeDragging]);
 
-  const onDragMove = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
-    const node = e.target as unknown as Konva.Stage;
-    setPos({ x: node.x(), y: node.y() });
+  const onStageDragMove = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
+    const stage = stageRef.current;
+    if (!stage || e.target !== stage) return;
+    setPos({ x: stage.x(), y: stage.y() });
   }, []);
 
   const cursor = isPanning ? "grabbing" : isSpaceDown ? "grab" : "default";
@@ -309,8 +370,8 @@ export default function CanvasStage() {
         y={pos.y}
         scaleX={scale}
         scaleY={scale}
-        draggable={isSpaceDown || isMiddlePanning}
-        onDragMove={onDragMove}
+        draggable={(isSpaceDown || isMiddlePanning) && !isNodeDragging}
+  onDragMove={onStageDragMove}
         onWheel={onWheel}
         onMouseDown={onMouseDown}
         onMouseUp={onMouseUp}
@@ -324,13 +385,50 @@ export default function CanvasStage() {
         }}
       >
         <GridLayer width={width} height={height} scale={scale} offset={pos} />
+        {/* Demo node layer */}
+        <Layer name="nodes">
+          <Rect
+            ref={demoRef}
+            x={100}
+            y={100}
+            width={160}
+            height={100}
+            cornerRadius={8}
+            fill="#3b82f6"
+            stroke="#1e40af"
+            strokeWidth={1}
+            opacity={0.9}
+            draggable
+            dragBoundFunc={(pos) => ({ x: snap(pos.x), y: snap(pos.y) })}
+            onMouseDown={(e) => {
+              // prevent Stage from initiating manual panning
+              e.cancelBubble = true;
+            }}
+            onDragStart={(e) => {
+              e.cancelBubble = true;
+              setIsNodeDragging(true);
+            }}
+            onDragEnd={(e) => {
+              e.cancelBubble = true;
+              setIsNodeDragging(false);
+              // ensure final snap (Konva already applied dragBoundFunc, but keep deterministic)
+              const node = demoRef.current;
+              if (node) {
+                node.position({ x: snap(node.x()), y: snap(node.y()) });
+              }
+            }}
+            shadowColor="black"
+            shadowBlur={4}
+            shadowOpacity={0.2}
+          />
+        </Layer>
         {/* Future content layers will go above */}
       </Stage>
       {/* Zoom controls */}
-    <div className="absolute left-4 bottom-4 z-10 flex flex-col gap-2 select-none" aria-label="Zoom controls">
+      <div className="absolute left-4 bottom-4 z-10 flex flex-col gap-2 select-none" aria-label="Zoom controls">
         <button
           type="button"
-      onClick={() => animateZoomAt({ x: width / 2, y: height / 2 }, scale * 1.1)}
+          onClick={() => animateZoomAt({ x: width / 2, y: height / 2 }, scale * 1.1)}
           title="Zoom in (+)"
           aria-label="Zoom in"
           className="w-10 h-10 rounded-md bg-white/90 dark:bg-black/60 border border-black/10 dark:border-white/10 shadow hover:bg-white dark:hover:bg-black text-lg leading-none"
@@ -339,7 +437,7 @@ export default function CanvasStage() {
         </button>
         <button
           type="button"
-      onClick={() => animateZoomAt({ x: width / 2, y: height / 2 }, scale / 1.1)}
+          onClick={() => animateZoomAt({ x: width / 2, y: height / 2 }, scale / 1.1)}
           title="Zoom out (-)"
           aria-label="Zoom out"
           className="w-10 h-10 rounded-md bg-white/90 dark:bg-black/60 border border-black/10 dark:border-white/10 shadow hover:bg-white dark:hover:bg-black text-lg leading-none"
