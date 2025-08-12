@@ -83,6 +83,19 @@ This project is configured for a static-only export, perfect for services like G
     ```
     You can then view your production-ready site at `http://localhost:3000`.
 
+### Image paths in dev vs GitHub Pages
+
+This app deploys under `/ChairChart` on GitHub Pages. The Next.js config enables `basePath` and `assetPrefix` only in production so that:
+
+- In development, assets resolve from `/` (e.g., `/next.svg`), matching files in `public/`.
+- In production/static export, assets resolve from `/ChairChart/next.svg`.
+
+When testing the static export locally, open:
+
+- http://localhost:3000/ChairChart/
+
+If you visit the server root without `/ChairChart/`, images will 404 because the paths include the base path in production.
+
 ## License
 
 Distributed under the MIT License. See `LICENSE.txt` for more information.
