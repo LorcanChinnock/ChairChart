@@ -19,6 +19,14 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_BASE_PATH: basePath,
   },
+  webpack: (config) => {
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+  canvas: false as unknown as string,
+    } as typeof config.resolve.alias;
+    return config;
+  },
 };
 
 export default nextConfig;
