@@ -1,120 +1,54 @@
-# ChairChart Development Guide
+# ChairChart — AI Agent Guide
 
-## Project Overview
-ChairChart is a **client-side only** Next.js seating chart planner for weddings/events. All data is stored in localStorage - no backend, no database, no authentication. The app exports as static files (`output: 'export'`) for GitHub Pages deployment.
+Goal: Make changes productively in a client-only, static-export Next.js app deployed to GitHub Pages under /ChairChart.
 
-## Architecture & Key Decisions
+Architecture and scope
+- Static-only Next.js (App Router). No backend, no API routes, no middleware, no SSR. All state/data lives in browser localStorage. See `README.md` and PRD at `temp/ChairChart_PRD.json`.
+- Deployed to GitHub Pages under `/ChairChart`. Static export is enabled; directories end with a trailing slash.
 
-### Static Export Configuration
-- **Build Output**: Static files in `/out` directory via `next.config.mjs`
-- **GitHub Pages**: Uses `basePath: '/ChairChart'` and `assetPrefix` in production
-- **Dev vs Prod**: Run `pnpm dev` for development, serve static files from `/out` for production testing
-- **No Server**: `next start` won't work - use static file server instead
+Build, run, and test
+- Dev: `pnpm dev` (Turbopack) → http://localhost:3000
+- Build: `pnpm build` → emits static site to `/out`
+- Do not use `pnpm start` (expected to fail for static export). To test production locally: `cd out && python3 -m http.server 3000` then open http://localhost:3000/ChairChart/
+- Lint: `pnpm lint` (ESLint 9 + Next config)
 
-### Core Tech Stack (Per PRD)
-- **Canvas**: Konva.js (not Fabric.js) for performance and React integration
-- **State**: Zustand (not Redux) for simpler state management  
-- **Styling**: Tailwind CSS with Geist fonts via `next/font/google`
-- **Storage**: Browser localStorage only - no server persistence
+Configuration that matters
+- Canonical config is `next.config.mjs`:
+  - `output: 'export'`, `trailingSlash: true`, `images.unoptimized: true`
+  - In prod only: `basePath: '/ChairChart'` and `assetPrefix: '/ChairChart/'`
+  - Exposes `process.env.NEXT_PUBLIC_BASE_PATH` so client code can prefix asset URLs
+- Note: `next.config.ts` also exists with static values. Prefer `next.config.mjs`. If both are kept, ensure they do not diverge; do not add server-only features.
 
-### File Structure
-```
-src/app/                 # Next.js 13+ App Router
-├── layout.tsx          # Root layout with Geist fonts
-├── page.tsx            # Landing page (currently default Next.js)  
-├── globals.css         # Tailwind + custom CSS variables
-public/                 # Static assets (SVG icons)
-temp/ChairChart_PRD.json # Detailed product requirements
-```
+Asset path pattern (important for GitHub Pages)
+- Use the basePath prefix for public assets. Example from `src/app/page.tsx`:
+  - `const prefix = process.env.NEXT_PUBLIC_BASE_PATH ?? "";`
+  - `<img src={`${prefix}/next.svg`} ... />`
+- When serving `/out`, always visit `/ChairChart/` or asset URLs will 404.
 
-## Development Workflows
+Styling and layout
+- Tailwind CSS v4 via PostCSS plugin (`postcss.config.mjs`). Global styles in `src/app/globals.css` import `tailwindcss` and define CSS variables.
+- Fonts via Geist in `src/app/layout.tsx` (App Router root). Keep `children: React.ReactNode` types explicit.
 
-### Build & Deploy Process
-```bash
-pnpm dev                # Development server with Turbo
-pnpm build              # Creates static export in /out
-pnpm lint               # ESLint with Next.js configs
-```
+Client-only patterns to follow
+- Interactive components must be client components (`"use client"`). Avoid server components for anything that touches window/localStorage/canvas.
+- No Next.js server features (no Route Handlers, no Image Optimization server). `images.unoptimized` is already set.
 
-### Static File Testing
-After `pnpm build`, serve static files:
-```bash
-cd out && python3 -m http.server 3000
-# or use any static file server
-```
+Feature direction (from PRD/README)
+- Canvas: Konva.js; State: Zustand; Persistence: localStorage; URL sharing via encoded plan data with compression (URL length ~2k chars). These libs are not yet in dependencies—install when implementing.
+- Data model to target (Plan/Table/Attendee/SeatAssignment) is outlined in PRD.
 
-## Critical Implementation Patterns
+Key files
+- `next.config.mjs` — export/basePath/env for static hosting
+- `src/app/page.tsx` — asset prefix usage pattern
+- `src/app/layout.tsx` — fonts, global CSS
+- `public/*.svg` — static assets referenced via prefixed URLs
+- `README.md` — exact build/test instructions (including why `next start` won’t work)
 
-### Data Model (From PRD)
-```typescript
-interface Plan {
-  id: string;
-  tables: Table[];
-  attendees: Attendee[];
-  seatAssignments: Record<attendeeId, {tableId, seatIndex}>;
-}
+Common pitfalls
+- Forgetting the `/ChairChart` base path in prod → broken assets/links
+- Using `next start` for a static export app
+- Introducing server-only features that break `output: 'export'`
+- Not marking interactive components as client components when needed
 
-interface Table {
-  id: string;
-  shape: 'round' | 'rectangular' | 'square';
-  name: string;
-  seats: number;
-  x: number; y: number;
-}
-
-interface Attendee {
-  id: string; name: string; group: string;
-  rsvp: 'Attending' | 'Declined' | 'Pending';
-  dietary?: string; specialNeeds?: string;
-}
-```
-
-### Core Features to Implement
-1. **Canvas Component**: Konva.js with pan/zoom/snapping, drag-drop for tables/guests
-2. **Guest Management Panel**: Side panel for attendee CRUD with color-coded groups
-3. **URL Sharing**: Serialize plan data to URL params (handle length limits)
-4. **localStorage Persistence**: Auto-save on changes, handle storage quotas
-
-### TypeScript Requirements
-- All components must have proper React types (`children: React.ReactNode`)
-- Use `import type` for type-only imports
-- Props interfaces should be explicit, not inferred
-
-## Project-Specific Conventions
-
-### Styling Approach
-- Use Tailwind utility classes primarily
-- CSS custom properties in `globals.css` for theming
-- Dark/light mode via `prefers-color-scheme`
-- Geist Sans/Mono fonts are pre-configured in layout
-
-### Error Boundaries & UX
-- Graceful localStorage failures (quota exceeded, disabled)
-- Invalid shared URL handling → redirect to new project
-- Canvas performance limits (200 guests, 25 tables per PRD)
-
-### Development Focus Areas
-1. **Canvas Performance**: Optimize Konva rendering for large datasets
-2. **Data Compression**: URL sharing limited by browser URL length (~2000 chars)
-3. **Accessibility**: Keyboard alternatives for drag-drop, WCAG 2.1 AA compliance
-4. **Mobile**: Touch-friendly interactions (post-MVP consideration)
-
-## Integration Points
-- **No external APIs** - completely self-contained
-- **localStorage** as single source of truth
-- **URL encoding/decoding** for plan sharing
-- **Static asset serving** from `/public`
-
-## Common Pitfalls
-- Don't use server-side Next.js features (API routes, SSR, middleware)
-- Remember GitHub Pages path prefix in production URLs
-- localStorage has size limits (~5-10MB) - implement compression
-- Canvas interactions need both mouse and touch event handling
-- URL sharing must handle encoding failures gracefully
-
-## Future Considerations (Post-MVP)
-- Database persistence and user accounts
-- Real-time collaboration
-- Mobile app versions  
-- CSV import/export functionality
-- Print/PDF generation
+When in doubt
+- Keep everything client-side, prefix asset paths using `NEXT_PUBLIC_BASE_PATH`, and verify production behavior by serving the `/out` folder and navigating to `/ChairChart/`.

@@ -81,7 +81,7 @@ This project is configured for a static-only export, perfect for services like G
     ```bash
     cd out && python3 -m http.server 3000
     ```
-    You can then view your production-ready site at `http://localhost:3000`.
+   You can then view your production-ready site at `http://localhost:3000/ChairChart/`.
 
 ### Image paths in dev vs GitHub Pages
 
@@ -95,6 +95,14 @@ When testing the static export locally, open:
 - http://localhost:3000/ChairChart/
 
 If you visit the server root without `/ChairChart/`, images will 404 because the paths include the base path in production.
+
+### Configuration notes
+
+- Canonical Next.js config is `next.config.mjs` (static export enabled, `trailingSlash: true`, `images.unoptimized: true`). In production only, it sets `basePath: '/ChairChart'` and `assetPrefix: '/ChairChart/'`, and exposes `process.env.NEXT_PUBLIC_BASE_PATH` to the client.
+- Public asset URLs in code are prefixed with this base path. See `src/app/page.tsx`:
+   - `const prefix = process.env.NEXT_PUBLIC_BASE_PATH ?? "";`
+   - `<img src={`${prefix}/next.svg`} ... />`
+   This ensures assets load correctly in both dev (no prefix) and GitHub Pages (with `/ChairChart` prefix).
 
 ## License
 
