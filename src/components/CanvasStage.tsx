@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Stage, Layer, Line, Rect } from "react-konva";
 import type Konva from "konva";
 import { useZoom, usePan, useSetPan, useSetView } from "../store/ui-store";
