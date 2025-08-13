@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Stage, Layer, Line, Rect } from "react-konva";
 import type Konva from "konva";
+import { useZoom, usePan, useSetPan, useSetView } from "../store/ui-store";
 
 type Vec2 = { x: number; y: number };
 
@@ -23,11 +24,23 @@ const useViewportSize = () => {
   return size;
 };
 
-function GridLayer({ width, height, scale, offset }: { width: number; height: number; scale: number; offset: Vec2 }) {
+function GridLayer({ width, height, scale, offset, isDarkMode }: { width: number; height: number; scale: number; offset: Vec2; isDarkMode: boolean }) {
   const grid = 20; // world units
   const majorEvery = 5; // every 5 minor lines
-  const colorMinor = "#e5e7eb"; // gray-200
-  const colorMajor = "#d1d5db"; // gray-300
+  
+  // Explicit theme colors - no CSS classes, no system detection
+  const colors = isDarkMode 
+    ? {
+        minor: "#1e3a5f", // Slightly lighter blue for minor grid lines
+        major: "#2d4a6b"  // More visible blue for major grid lines
+      }
+    : {
+        minor: "#e8d5b7", // Soft beige for minor grid lines
+        major: "#d4c4a8"  // Slightly darker beige for major grid lines  
+      };
+  
+  const colorMinor = colors.minor;
+  const colorMajor = colors.major;
 
   // Compute visible world bounds
   const worldMinX = (-offset.x) / scale;
@@ -56,8 +69,8 @@ function GridLayer({ width, height, scale, offset }: { width: number; height: nu
     horizontals.push({ y, major: index % majorEvery === 0 });
   }
 
-  const strokeMinor = Math.max(0.75 / scale, 0.25);
-  const strokeMajor = Math.max(1.25 / scale, 0.5);
+  const strokeMinor = Math.max(0.5 / scale, 0.15); // thinner, more subtle
+  const strokeMajor = Math.max(0.8 / scale, 0.3); // reduced thickness
 
   return (
     <Layer listening={false} name="grid">
@@ -90,15 +103,38 @@ export default function CanvasStage() {
   const { width, height } = useViewportSize();
   const stageRef = useRef<Konva.Stage>(null);
 
-  const [scale, setScale] = useState(1);
-  const [pos, setPos] = useState<Vec2>({ x: 0, y: 0 });
+  // Use Zustand store for zoom/pan state
+  const zoom = useZoom();
+  const pan = usePan();
+  const setPan = useSetPan();
+  const setView = useSetView();
   const [isSpaceDown, setIsSpaceDown] = useState(false);
   const [isMiddlePanning, setIsMiddlePanning] = useState(false);
   const [isLeftPanning, setIsLeftPanning] = useState(false);
   const [isNodeDragging, setIsNodeDragging] = useState(false);
+  const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false); // Always start in light mode
   const lastPointerRef = useRef<Vec2 | null>(null);
 
   const isPanning = isSpaceDown || isMiddlePanning || isLeftPanning;
+
+  // Get explicit background color based on our theme state only
+  const backgroundColor = isDarkMode ? "#0f1729" : "#faf7f0"; // Night sky blue vs warm cream
+  
+  // Button styling based on our theme only
+  const buttonStyle = {
+    backgroundColor: isDarkMode ? "#1e3a5f" : "#f5f1e8",
+    color: isDarkMode ? "#e2e8f0" : "#374151",
+    border: isDarkMode ? "1px solid #2d4a6b" : "1px solid #d4c4a8",
+  };
+  
+  const buttonHoverStyle = {
+    backgroundColor: isDarkMode ? "#2d4a6b" : "#ede7db",
+  };
+
+  const toggleDarkMode = () => {
+    setIsDarkMode(!isDarkMode);
+  };
 
   // Smooth zoom animation
   const zoomAnimRef = useRef<{ id: number | null } | null>({ id: null });
@@ -117,8 +153,8 @@ export default function CanvasStage() {
   const animateViewTo = useCallback(
     (targetScale: number, targetPos: Vec2, duration = 200) => {
       cancelZoomAnim();
-      const startScale = scale;
-      const startPos = { ...pos };
+      const startScale = zoom;
+      const startPos = { ...pan };
       const endScale = clamp(targetScale, 0.1, 8);
       const endPos = targetPos;
       const start = performance.now();
@@ -129,8 +165,7 @@ export default function CanvasStage() {
         const s = startScale + (endScale - startScale) * k;
         const x = startPos.x + (endPos.x - startPos.x) * k;
         const y = startPos.y + (endPos.y - startPos.y) * k;
-        setScale(s);
-        setPos({ x, y });
+        setView(s, { x, y });
         if (t < 1 && zoomAnimRef.current) {
           zoomAnimRef.current.id = requestAnimationFrame(step);
         } else if (zoomAnimRef.current) {
@@ -141,18 +176,18 @@ export default function CanvasStage() {
         zoomAnimRef.current.id = requestAnimationFrame(step);
       }
     },
-    [cancelZoomAnim, pos, scale]
+    [cancelZoomAnim, pan, zoom, setView]
   );
 
   // Animate zoom anchored at a screen-space center point
   const animateZoomAt = useCallback(
     (center: Vec2, targetScale: number, duration = 180) => {
       const endScale = clamp(targetScale, 0.1, 8);
-      const anchorWorld = { x: (center.x - pos.x) / scale, y: (center.y - pos.y) / scale };
+      const anchorWorld = { x: (center.x - pan.x) / zoom, y: (center.y - pan.y) / zoom };
       const targetPos = { x: center.x - anchorWorld.x * endScale, y: center.y - anchorWorld.y * endScale };
       animateViewTo(endScale, targetPos, duration);
     },
-    [animateViewTo, pos.x, pos.y, scale]
+    [animateViewTo, pan.x, pan.y, zoom]
   );
 
   // Demo node setup (snapping utilities)
@@ -170,19 +205,18 @@ export default function CanvasStage() {
       const pointer = stage.getPointerPosition() ?? { x: width / 2, y: height / 2 };
       // Immediate pointer-anchored zoom (no animation)
       cancelZoomAnim();
-      const oldScale = scale;
+      const oldScale = zoom;
       const scaleBy = 1.05;
       const direction = evt.deltaY > 0 ? 1 : -1;
       const newScale = clamp(direction > 0 ? oldScale / scaleBy : oldScale * scaleBy, 0.1, 8);
-      const anchorWorld = { x: (pointer.x - pos.x) / oldScale, y: (pointer.y - pos.y) / oldScale };
-      setScale(newScale);
-      setPos({ x: pointer.x - anchorWorld.x * newScale, y: pointer.y - anchorWorld.y * newScale });
+      const anchorWorld = { x: (pointer.x - pan.x) / oldScale, y: (pointer.y - pan.y) / oldScale };
+      setView(newScale, { x: pointer.x - anchorWorld.x * newScale, y: pointer.y - anchorWorld.y * newScale });
       return;
     }
 
     // Trackpad / wheel panning
-    setPos((p) => ({ x: p.x - evt.deltaX, y: p.y - evt.deltaY }));
-  }, [cancelZoomAnim, height, pos.x, pos.y, scale, width]);
+    setPan({ x: pan.x - evt.deltaX, y: pan.y - evt.deltaY });
+  }, [cancelZoomAnim, height, pan.x, pan.y, zoom, width, setPan, setView]);
 
   // Keyboard handlers on the container
   const containerRef = useRef<HTMLDivElement>(null);
@@ -205,13 +239,13 @@ export default function CanvasStage() {
       if (e.key === "+" || e.key === "=" || e.key === "]") {
         e.preventDefault();
         const center = { x: width / 2, y: height / 2 };
-        animateZoomAt(center, scale * 1.1);
+        animateZoomAt(center, zoom * 1.1);
         return;
       }
       if (e.key === "-" || e.key === "_") {
         e.preventDefault();
         const center = { x: width / 2, y: height / 2 };
-        animateZoomAt(center, scale / 1.1);
+        animateZoomAt(center, zoom / 1.1);
         return;
       }
 
@@ -251,22 +285,22 @@ export default function CanvasStage() {
       const step = e.shiftKey ? 100 : 50;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        setPos((p) => ({ x: p.x + step, y: p.y }));
+        setPan({ x: pan.x + step, y: pan.y });
         return;
       }
       if (e.key === "ArrowRight") {
         e.preventDefault();
-        setPos((p) => ({ x: p.x - step, y: p.y }));
+        setPan({ x: pan.x - step, y: pan.y });
         return;
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setPos((p) => ({ x: p.x, y: p.y + step }));
+        setPan({ x: pan.x, y: pan.y + step });
         return;
       }
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setPos((p) => ({ x: p.x, y: p.y - step }));
+        setPan({ x: pan.x, y: pan.y - step });
         return;
       }
     };
@@ -283,7 +317,7 @@ export default function CanvasStage() {
       el.removeEventListener("keydown", onKeyDown);
       el.removeEventListener("keyup", onKeyUp);
     };
-  }, [animateViewTo, animateZoomAt, height, isSpaceDown, scale, width]);
+  }, [animateViewTo, animateZoomAt, height, isSpaceDown, zoom, width, pan, setPan]);
 
   // Demo node setup moved above
 
@@ -337,16 +371,16 @@ export default function CanvasStage() {
       const dx = p.x - last.x;
       const dy = p.y - last.y;
       if (dx !== 0 || dy !== 0) {
-        setPos((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+        setPan({ x: pan.x + dx, y: pan.y + dy });
         lastPointerRef.current = p;
       }
     }
-  }, [isLeftPanning, isNodeDragging]);
+  }, [isLeftPanning, isNodeDragging, pan, setPan]);
 
   const onStageDragMove = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
     const stage = stageRef.current;
     if (!stage || e.target !== stage) return;
-    setPos({ x: stage.x(), y: stage.y() });
+    setPan({ x: stage.x(), y: stage.y() });
   }, []);
 
   const cursor = isPanning ? "grabbing" : isSpaceDown ? "grab" : "default";
@@ -358,7 +392,14 @@ export default function CanvasStage() {
     <div
       ref={containerRef}
       tabIndex={0}
-      style={{ width: "100vw", height: "100vh", outline: "none", cursor, position: "relative" }}
+      style={{ 
+        width: "100vw", 
+        height: "100vh", 
+        outline: "none", 
+        cursor, 
+        position: "relative",
+        backgroundColor
+      }}
       aria-label="Seating plan canvas"
       role="application"
     >
@@ -366,10 +407,10 @@ export default function CanvasStage() {
         ref={stageRef}
         width={width}
         height={height}
-        x={pos.x}
-        y={pos.y}
-        scaleX={scale}
-        scaleY={scale}
+        x={pan.x}
+        y={pan.y}
+        scaleX={zoom}
+        scaleY={zoom}
         draggable={(isSpaceDown || isMiddlePanning) && !isNodeDragging}
   onDragMove={onStageDragMove}
         onWheel={onWheel}
@@ -384,7 +425,7 @@ export default function CanvasStage() {
           }
         }}
       >
-        <GridLayer width={width} height={height} scale={scale} offset={pos} />
+        <GridLayer width={width} height={height} scale={zoom} offset={pan} isDarkMode={isDarkMode} />
         {/* Demo node layer */}
         <Layer name="nodes">
           <Rect
@@ -424,26 +465,149 @@ export default function CanvasStage() {
         </Layer>
         {/* Future content layers will go above */}
       </Stage>
-      {/* Zoom controls */}
-      <div className="absolute left-4 bottom-4 z-10 flex flex-col gap-2 select-none" aria-label="Zoom controls">
+      
+      {/* Dark mode toggle */}
+      <div className="absolute top-4 right-4 z-10 select-none">
         <button
           type="button"
-          onClick={() => animateZoomAt({ x: width / 2, y: height / 2 }, scale * 1.1)}
+          onClick={toggleDarkMode}
+          style={{
+            width: "40px",
+            height: "40px",
+            borderRadius: "6px",
+            ...buttonStyle,
+            boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
+            transition: "all 0.2s",
+            cursor: "pointer"
+          }}
+          title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+          aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+        >
+          {isDarkMode ? "☀️" : "🌙"}
+        </button>
+      </div>
+      
+      {/* Zoom controls */}
+      <div className="absolute right-4 bottom-4 z-10 flex flex-col gap-2 select-none" aria-label="Zoom controls">
+        <button
+          type="button"
+          onClick={() => animateZoomAt({ x: width / 2, y: height / 2 }, zoom * 1.1)}
           title="Zoom in (+)"
           aria-label="Zoom in"
-          className="w-10 h-10 rounded-md bg-white/90 dark:bg-black/60 border border-black/10 dark:border-white/10 shadow hover:bg-white dark:hover:bg-black text-lg leading-none"
+          style={{
+            width: "40px",
+            height: "40px",
+            borderRadius: "6px",
+            ...buttonStyle,
+            boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
+            fontSize: "18px",
+            lineHeight: "1",
+            cursor: "pointer",
+            transition: "all 0.2s"
+          }}
         >
           +
         </button>
         <button
           type="button"
-          onClick={() => animateZoomAt({ x: width / 2, y: height / 2 }, scale / 1.1)}
+          onClick={() => animateZoomAt({ x: width / 2, y: height / 2 }, zoom / 1.1)}
           title="Zoom out (-)"
           aria-label="Zoom out"
-          className="w-10 h-10 rounded-md bg-white/90 dark:bg-black/60 border border-black/10 dark:border-white/10 shadow hover:bg-white dark:hover:bg-black text-lg leading-none"
+          style={{
+            width: "40px",
+            height: "40px",
+            borderRadius: "6px",
+            ...buttonStyle,
+            boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
+            fontSize: "18px",
+            lineHeight: "1",
+            cursor: "pointer",
+            transition: "all 0.2s"
+          }}
         >
           −
         </button>
+      </div>
+      
+      {/* Keyboard shortcuts help */}
+      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-10 select-none">
+        <div className="flex flex-col items-center">
+          {/* Toggle button */}
+          <button
+            type="button"
+            onClick={() => setShowKeyboardHelp(!showKeyboardHelp)}
+            style={{
+              marginBottom: "8px",
+              padding: "6px 12px",
+              borderRadius: "20px",
+              fontSize: "14px",
+              cursor: "pointer",
+              transition: "all 0.2s",
+              ...buttonStyle,
+              boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)"
+            }}
+            title={showKeyboardHelp ? "Hide keyboard shortcuts" : "Show keyboard shortcuts"}
+          >
+            ⌨️ {showKeyboardHelp ? "Hide" : "Shortcuts"}
+          </button>
+          
+          {/* Shortcuts panel */}
+          {showKeyboardHelp && (
+            <div style={{
+              backgroundColor: isDarkMode ? "#1e3a5f" : "#f5f1e8",
+              border: isDarkMode ? "1px solid #2d4a6b" : "1px solid #d4c4a8",
+              borderRadius: "8px",
+              boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+              padding: "16px",
+              maxWidth: "384px",
+              backdropFilter: "blur(4px)"
+            }}>
+              <div style={{ 
+                display: "grid", 
+                gridTemplateColumns: "1fr 1fr", 
+                gap: "8px 24px", 
+                fontSize: "14px" 
+              }}>
+                {[
+                  ["Pan", "Space + Drag"],
+                  ["Zoom", "Ctrl + Scroll"], 
+                  ["Zoom In", "+"],
+                  ["Zoom Out", "-"],
+                  ["Reset View", "0"],
+                  ["Fit Demo", "1"]
+                ].map(([label, key]) => (
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ color: isDarkMode ? "#cbd5e1" : "#6b7280" }}>{label}</span>
+                    <kbd style={{
+                      padding: "2px 6px",
+                      backgroundColor: isDarkMode ? "#374151" : "#f3f4f6",
+                      border: isDarkMode ? "1px solid #4b5563" : "1px solid #e5e7eb",
+                      borderRadius: "3px",
+                      fontSize: "12px",
+                      fontFamily: "monospace",
+                      color: isDarkMode ? "#e5e7eb" : "#374151"
+                    }}>{key}</kbd>
+                  </div>
+                ))}
+                <div style={{ gridColumn: "span 2", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: isDarkMode ? "#cbd5e1" : "#6b7280" }}>Pan with arrows</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                    <kbd style={{
+                      padding: "2px 6px",
+                      backgroundColor: isDarkMode ? "#374151" : "#f3f4f6",
+                      border: isDarkMode ? "1px solid #4b5563" : "1px solid #e5e7eb",
+                      borderRadius: "3px",
+                      fontSize: "12px",
+                      fontFamily: "monospace",
+                      color: isDarkMode ? "#e5e7eb" : "#374151"
+                    }}>↑↓←→</kbd>
+                    <span style={{ color: isDarkMode ? "#9ca3af" : "#6b7280", fontSize: "12px" }}>+ Shift for larger steps</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
