@@ -118,15 +118,20 @@ vi.mock('../../store/ui-store', () => ({
   useSetPan: vi.fn(() => mockSetPan),
   useSetView: vi.fn(() => mockSetView),
   useSelection: vi.fn(() => ({ selectedIds: [], selectionRect: null })),
+  useInspector: vi.fn(() => ({ isOpen: false, tableId: null })),
+  useOpenInspector: vi.fn(() => vi.fn()),
+  useCloseInspector: vi.fn(() => vi.fn()),
 }))
 
 // Mock the plan store
 vi.mock('../../store/plan-store', () => ({
   useTables: vi.fn(() => []),
   useSelectedTableIds: vi.fn(() => []),
+  useAddTable: vi.fn(() => vi.fn()),
   useSelectTable: vi.fn(() => vi.fn()),
   useClearTableSelection: vi.fn(() => vi.fn()),
   useUpdateTable: vi.fn(() => vi.fn()),
+  useDeleteTable: vi.fn(() => vi.fn()),
 }))
 
 // Mock screen-to-world transforms

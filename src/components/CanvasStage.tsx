@@ -3,11 +3,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Stage, Layer, Line } from "react-konva";
 import type Konva from "konva";
-import { useZoom, usePan, useSetPan, useSetView } from "../store/ui-store";
+import { useZoom, usePan, useSetPan, useSetView, useOpenInspector } from "../store/ui-store";
 import { useTables, useSelectedTableIds, useSelectTable, useClearTableSelection, useUpdateTable } from "../store/plan-store";
 import { screenToWorld } from "../utils/canvasTransforms";
 import TableNode from "./TableNode";
 import Toolbar from "./Toolbar";
+import Inspector from "./Inspector";
 
 type Vec2 = { x: number; y: number };
 
@@ -127,6 +128,7 @@ export default function CanvasStage() {
   const selectTable = useSelectTable();
   const clearTableSelection = useClearTableSelection();
   const updateTable = useUpdateTable();
+  const openInspector = useOpenInspector();
 
   const isPanning = isSpaceDown || isMiddlePanning || isLeftPanning;
 
@@ -206,6 +208,10 @@ export default function CanvasStage() {
   const handleTableSelect = useCallback((tableId: string) => {
     selectTable(tableId);
   }, [selectTable]);
+  
+  const handleTableDoubleClick = useCallback((tableId: string) => {
+    openInspector(tableId);
+  }, [openInspector]);
 
   const handleTableDragStart = useCallback((tableId: string) => {
     setIsNodeDragging(true);
@@ -257,6 +263,18 @@ export default function CanvasStage() {
     if (!el) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
+      // Skip canvas shortcuts if user is focused on an input element
+      const activeElement = document.activeElement;
+      const isInputFocused = activeElement && (
+        activeElement.tagName === 'INPUT' ||
+        activeElement.tagName === 'TEXTAREA' ||
+        activeElement.isContentEditable
+      );
+      
+      if (isInputFocused) {
+        return; // Let the input handle the event normally
+      }
+
       // Space toggles panning
       if (e.code === "Space") {
         if (!isSpaceDown) {
@@ -450,6 +468,7 @@ export default function CanvasStage() {
               scale={zoom}
               isDragging={draggingTableId === table.id}
               onSelect={handleTableSelect}
+              onDoubleClick={handleTableDoubleClick}
               onDragStart={handleTableDragStart}
               onDragEnd={handleTableDragEnd}
             />
@@ -606,6 +625,9 @@ export default function CanvasStage() {
           )}
         </div>
       </div>
+      
+      {/* Inspector Panel */}
+      <Inspector />
     </div>
   );
 }

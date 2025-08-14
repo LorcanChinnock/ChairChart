@@ -14,6 +14,7 @@ interface TableNodeProps {
   scale?: number;
   isDragging?: boolean;
   onSelect?: (id: string) => void;
+  onDoubleClick?: (id: string) => void;
   onDragStart?: (id: string) => void;
   onDragEnd?: (id: string, position: { x: number; y: number }) => void;
 }
@@ -24,13 +25,14 @@ export default function TableNode({
   scale = 1,
   isDragging = false,
   onSelect,
+  onDoubleClick,
   onDragStart,
   onDragEnd
 }: TableNodeProps) {
   const groupRef = useRef<Konva.Group>(null);
   
   // Memoize seat positions to prevent recalculation during drag
-  const seatPositions = useMemo(() => getSeatPositions(table), [table.shape, table.seatCount, table.size, table.rotation]);
+  const seatPositions = useMemo(() => getSeatPositions(table), [table]);
   
   // Table styling based on selection
   const fillColor = isSelected ? "#fef3c7" : "#ffffff";
@@ -45,6 +47,13 @@ export default function TableNode({
   const handleClick = () => {
     if (onSelect) {
       onSelect(table.id);
+    }
+  };
+  
+  // Handle table double-click
+  const handleDoubleClick = () => {
+    if (onDoubleClick) {
+      onDoubleClick(table.id);
     }
   };
   
@@ -115,6 +124,7 @@ export default function TableNode({
       draggable
       onClick={handleClick}
       onTap={handleClick}
+      onDblClick={handleDoubleClick}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
@@ -132,7 +142,7 @@ export default function TableNode({
         fontStyle="600"
         align="center"
         verticalAlign="middle"
-        offsetX={0}
+        offsetX={table.name.length * fontSize * 0.225} // Approximate text width for centering
         offsetY={fontSize / 2}
         listening={false} // Text doesn't need to handle drag events
       />

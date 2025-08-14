@@ -2,119 +2,121 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Commands
+# Project Context
 
-**Development:**
-```bash
-pnpm dev          # Start dev server with Turbopack on http://localhost:3000
-pnpm build        # Build static export to /out directory
-pnpm lint         # Run ESLint 9 + Next.js config
-```
+ChairChart is a client-side seating chart planner for weddings and events. It's a **Next.js 15** application with **React 19**, **TypeScript 5**, and **Tailwind CSS 4**, configured for static export to GitHub Pages.
 
-**Testing production build locally:**
-```bash
-cd out && python3 -m http.server 3000
-# Then visit http://localhost:3000/ChairChart/
-```
+## Tech Stack
+- **Framework**: Next.js 15 (App Router, static export)
+- **Canvas**: Konva.js with react-konva for 2D graphics
+- **State Management**: Zustand stores (plan-store.ts, ui-store.ts)
+- **Testing**: Vitest with @testing-library/react
+- **Styling**: Tailwind CSS 4 with PostCSS
+- **Type Safety**: Zod schemas for data validation
 
-⚠️ **Do not use `pnpm start`** - it will fail because this is a static export app with no server.
+## Essential Commands
 
-## Architecture
+### Development
+- `pnpm dev` - Start development server (uses Turbopack)
+- `pnpm build` - Build for production (static export to `/out`)
+- `pnpm start` - Start production server (won't work, use static serve instead)
 
-**Static Next.js App** - No backend, no API routes, no SSR, no middleware. Everything runs client-side with data persisted to localStorage.
+### Testing
+- `pnpm test` - Run tests with Vitest
+- `pnpm test:watch` - Run tests in watch mode
+- `pnpm test:ui` - Run tests with UI
+- `pnpm test:coverage` - Run tests with coverage report
 
-**Key Technologies:**
-- **Framework**: Next.js 15 (App Router) with static export
-- **Canvas**: Konva.js via react-konva for interactive seating chart canvas
-- **State**: Zustand for state management 
-- **Styling**: Tailwind CSS v4
-- **Types**: TypeScript throughout
-- **Compression**: lz-string for URL sharing (compact plan encoding ~2k chars)
+### Code Quality
+- `pnpm lint` - Run Next.js ESLint
 
-**Canvas Architecture:**
-- `CanvasStage.tsx` - Main infinite canvas with grid, zoom, pan, and keyboard controls
-- World space coordinates with grid snapping (20px units)
-- Smooth zoom animations with easing
-- Multi-modal interaction: space+drag, middle-click drag, trackpad pan/zoom
-- Demo draggable rectangle showing component patterns
+## Architecture Overview
 
-## Static Export & GitHub Pages Configuration
+### State Management Pattern
+The app uses **two separate Zustand stores**:
 
-**Critical basePath handling** for GitHub Pages deployment under `/ChairChart`:
+1. **plan-store.ts**: Domain logic (tables, seats, attendees)
+   - Table CRUD operations with nanoid generation
+   - Table selection management
+   - Convenience hooks like `useTables()`, `useAddTable()`
 
-**Production vs Development:**
-- Dev: Assets load from root `/` (e.g. `/next.svg`)
-- Production: Assets load from `/ChairChart/` (e.g. `/ChairChart/next.svg`)
+2. **ui-store.ts**: UI state (zoom, pan, inspector, selections)
+   - Canvas viewport state (zoom/pan)
+   - Inspector panel state
+   - Selection rectangles and UI interactions
 
-**Asset prefix pattern** (see `src/app/page.tsx`):
-```javascript
-const prefix = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-<img src={`${prefix}/next.svg`} />
-```
+### Component Architecture
+- **CanvasStage.tsx**: Main canvas component using Konva Stage/Layer
+  - Handles zoom/pan with smooth animations
+  - Keyboard shortcuts (Space for pan, +/- for zoom, arrows for navigation)
+  - Dark/light theme toggle (manual, no system detection)
+  - Grid rendering with dynamic line calculations
 
-**Configuration files:**
-- `next.config.mjs` - Canonical config with `output: 'export'`, conditional `basePath`
-- `next.config.ts` - Mirror config (keep in sync, prefer .mjs)
+- **TableNode.tsx**: Individual table rendering (round/rect/square shapes)
+- **SeatNode.tsx**: Individual seat rendering around table perimeters
+- **Inspector.tsx**: Right-panel for table/seat details
+- **Toolbar.tsx**: Left-panel with table creation tools
 
-**Production testing:** Always visit `/ChairChart/` when serving from `/out`, not server root.
+### Canvas Coordinate System
+- **Screen space**: Browser viewport coordinates
+- **World space**: Infinite canvas coordinates  
+- **Transforms**: `src/utils/canvasTransforms.ts` for coordinate conversions
+- **Seat geometry**: `src/utils/seatGeometry.ts` for positioning seats around tables
 
-## Client Components & Patterns
+### Static Export Configuration
+The app deploys to GitHub Pages under `/ChairChart`:
+- `next.config.mjs`: Handles basePath/assetPrefix in production only
+- `process.env.NEXT_PUBLIC_BASE_PATH` available to client for asset URLs
+- **Dev**: Assets load from `/` (e.g., `/next.svg`)
+- **Production**: Assets load from `/ChairChart/` (e.g., `/ChairChart/next.svg`)
 
-**All interactive components must use `"use client"`** - especially anything touching:
-- `window`, `localStorage`, DOM events
-- Konva.js canvas interactions
-- State management hooks
+### Testing Setup
+Comprehensive test infrastructure in `src/test-setup.ts`:
+- **Mocks**: Canvas APIs, react-konva components, ResizeObserver, matchMedia
+- **Pattern**: Each component/store/util has a `__tests__/` directory
+- **Coverage**: Tests cover Zustand store logic, canvas interactions, utilities
+- Canvas/Konva mocking allows testing without DOM canvas support
 
-**Component patterns:**
-- Dynamic imports with `{ ssr: false }` for client-only components
-- Viewport size tracking with window resize handlers
-- Ref-based Konva node manipulation
-- Grid-based coordinate systems and snapping
-
-## File Structure
-
-```
-src/
-├── app/
-│   ├── layout.tsx      # Root layout with Geist fonts
-│   ├── page.tsx        # Home page with dynamic CanvasStage import
-│   └── globals.css     # Tailwind imports and CSS variables
-├── components/
-│   └── CanvasStage.tsx # Main canvas component (450+ lines)
-└── shims/
-    └── empty.js        # Canvas module shim for webpack
-```
+### Type System
+Strong typing with Zod validation in `src/types/index.ts`:
+- `Table`, `Attendee`, `SeatAssignment`, `Plan` schemas
+- Runtime validation for data integrity
+- TypeScript inference from Zod schemas
 
 ## Development Patterns
 
-**State Management:**
-- Zustand for global state (not yet implemented)
-- localStorage for persistence
-- URL encoding for sharing (lz-string compression)
+### Adding New Tables
+1. Use `useAddTable()` hook from plan-store
+2. Tables auto-generate unique IDs (nanoid) and names ("Table 1", "Table 2", etc.)
+3. Default to round tables with 8 seats at canvas center
 
-**Canvas Interactions:**
-- Grid snapping: `snap = (v) => Math.round(v / GRID) * GRID`
-- Viewport transforms: screen ↔ world coordinate conversion
-- Event bubbling control for draggable nodes vs stage panning
-- Animation cancellation patterns for smooth interactions
+### Canvas Interactions
+- **Panning**: Space + drag, middle mouse, or manual left-click on empty stage
+- **Zooming**: Ctrl/Cmd + wheel, or keyboard +/-/0
+- **Selection**: Click tables to select, double-click to open inspector
+- **Keyboard**: Arrow keys pan, Shift+arrows for larger steps
 
-**Keyboard shortcuts in CanvasStage:**
-- Space: Toggle pan mode
-- +/-: Zoom in/out
-- 0: Reset view to origin
-- 1: Fit demo node to view
-- Arrow keys: Pan (Shift for larger steps)
+### Component Testing
+- Always mock react-konva components in tests (see test-setup.ts)
+- Use `@testing-library/react` for component tests
+- Mock Zustand stores when testing isolated components
+- Test canvas interactions by mocking Stage/Layer event handlers
 
-## Common Pitfalls
+## File Organization
 
-1. **Missing `/ChairChart` base path** in production → 404s on assets/links
-2. **Using `next start`** for static export (will fail)
-3. **Server-side features** break `output: 'export'`
-4. **Forgetting `"use client"`** for interactive components
-5. **Canvas coordinate confusion** between screen and world space
+### Key Directories to Understand
+- `src/store/` - Zustand state management
+- `src/components/` - React components with co-located `__tests__/`
+- `src/utils/` - Pure functions (canvas math, geometry)
+- `src/types/` - TypeScript/Zod type definitions
+- `src/shims/` - Module shims (canvas polyfill)
 
-## Dependencies
+### Ignore These Directories
+- `node_modules/`, `out/`, `dist/`, `coverage/`, `.next/`, `temp/`
 
-Current key dependencies: `react`, `next`, `konva`, `react-konva`, `zustand`, `clsx`, `tailwindcss`, `typescript`
-
-When adding features, install dependencies first and check they work with static export mode.
+## When Making Changes
+1. **Always run tests before committing**: `pnpm test`
+2. **Update co-located tests** when modifying components
+3. **Use semantic commit messages**: feat:, fix:, docs:, test:, refactor:
+4. **Check static build works**: `pnpm build` then serve `/out`
+5. **Verify both light and dark theme** if changing UI components

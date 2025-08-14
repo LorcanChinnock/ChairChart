@@ -59,7 +59,7 @@ export default function SeatNode({
         fontStyle="500"
         align="center"
         verticalAlign="middle"
-        offsetX={0}
+        offsetX={seat.seatNumber.toString().length * fontSize * 0.3} // Approximate text width for centering
         offsetY={fontSize / 2}
         listening={false} // Text doesn't need to handle events
       />

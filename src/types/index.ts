@@ -18,6 +18,12 @@ export const AttendeeSchema = z.object({
 });
 export type Attendee = z.infer<typeof AttendeeSchema>;
 
+export const SeatConfigSchema = z.object({
+  cornerSeats: z.number().min(0).max(4).optional(),
+}).optional();
+
+export type SeatConfig = z.infer<typeof SeatConfigSchema>;
+
 export const TableSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -29,6 +35,7 @@ export const TableSchema = z.object({
     width: z.number().positive(),
     height: z.number().positive(),
   }),
+  seatConfig: SeatConfigSchema,
 });
 export type Table = z.infer<typeof TableSchema>;
 

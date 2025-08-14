@@ -110,7 +110,7 @@ describe("getSeatPositions", () => {
   });
   
   describe("square tables", () => {
-    test("8 seats on square table", () => {
+    test("8 seats on square table distributes evenly across sides", () => {
       const table = createTable({ 
         shape: "square", 
         seatCount: 8, 
@@ -120,7 +120,83 @@ describe("getSeatPositions", () => {
       
       expect(seats).toHaveLength(8);
       
-      // Should behave like rectangular table with equal width/height
+      // Should have 2 seats per side (8/4 = 2)
+      seats.forEach((seat, i) => {
+        expect(seat.seatNumber).toBe(i + 1);
+        // Check that seat is at proper offset from table edges
+        const { x, y } = seat.position;
+        const minDistance = Math.min(
+          Math.abs(Math.abs(x) - 80), // 50 + 30 offset
+          Math.abs(Math.abs(y) - 80)
+        );
+        expect(minDistance).toBeLessThan(1); // Should be close to table edge + offset
+      });
+    });
+    
+    test("6 seats on square table distributes with remainder", () => {
+      const table = createTable({ 
+        shape: "square", 
+        seatCount: 6, 
+        size: { width: 100, height: 100 } 
+      });
+      const seats = getSeatPositions(table);
+      
+      expect(seats).toHaveLength(6);
+      
+      // Should distribute: 2, 2, 1, 1 across the four sides
+      seats.forEach((seat, i) => {
+        expect(seat.seatNumber).toBe(i + 1);
+      });
+    });
+  });
+  
+  describe("rectangular table corner configuration", () => {
+    test("rectangle with corner seating configuration", () => {
+      const table = createTable({ 
+        shape: "rect", 
+        seatCount: 8, 
+        size: { width: 200, height: 100 },
+        seatConfig: { cornerSeats: 2 }
+      });
+      const seats = getSeatPositions(table);
+      
+      expect(seats).toHaveLength(8);
+      
+      // Should prioritize corners/ends for horizontal rectangle
+      seats.forEach((seat, i) => {
+        expect(seat.seatNumber).toBe(i + 1);
+      });
+    });
+    
+    test("rectangle without seatConfig uses perimeter distribution", () => {
+      const table = createTable({ 
+        shape: "rect", 
+        seatCount: 8, 
+        size: { width: 200, height: 100 }
+        // No seatConfig provided
+      });
+      const seats = getSeatPositions(table);
+      
+      expect(seats).toHaveLength(8);
+      
+      // Should use old perimeter-based distribution
+      seats.forEach((seat, i) => {
+        expect(seat.seatNumber).toBe(i + 1);
+      });
+    });
+    
+    test("rectangle with 0 corner seats uses perimeter distribution", () => {
+      const table = createTable({ 
+        shape: "rect", 
+        seatCount: 8, 
+        size: { width: 200, height: 100 },
+        seatConfig: { cornerSeats: 0 }
+      });
+      const seats = getSeatPositions(table);
+      
+      expect(seats).toHaveLength(8);
+      
+      // Should still use improved distribution but with 0 corner priority
       seats.forEach((seat, i) => {
         expect(seat.seatNumber).toBe(i + 1);
       });

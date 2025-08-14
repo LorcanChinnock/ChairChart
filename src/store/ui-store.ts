@@ -14,6 +14,12 @@ interface UIState {
     selectedIds: string[];
     selectionRect: { start: Vec2; end: Vec2 } | null;
   };
+  
+  // Inspector state
+  inspector: {
+    isOpen: boolean;
+    tableId: string | null;
+  };
 }
 
 interface UIActions {
@@ -31,6 +37,10 @@ interface UIActions {
   clearSelection: () => void;
   setSelectionRect: (rect: { start: Vec2; end: Vec2 } | null) => void;
   
+  // Inspector actions
+  openInspector: (tableId: string) => void;
+  closeInspector: () => void;
+  
   // Combined view actions
   setView: (zoom: number, pan: Vec2) => void;
 }
@@ -44,6 +54,10 @@ export const useUIStore = create<UIStore>((set, get) => ({
   selection: {
     selectedIds: [],
     selectionRect: null,
+  },
+  inspector: {
+    isOpen: false,
+    tableId: null,
   },
   
   // Zoom actions
@@ -91,6 +105,13 @@ export const useUIStore = create<UIStore>((set, get) => ({
   setSelectionRect: (selectionRect: { start: Vec2; end: Vec2 } | null) => 
     set((state) => ({ selection: { ...state.selection, selectionRect } })),
   
+  // Inspector actions
+  openInspector: (tableId: string) => 
+    set((state) => ({ inspector: { isOpen: true, tableId } })),
+  
+  closeInspector: () => 
+    set((state) => ({ inspector: { isOpen: false, tableId: null } })),
+  
   // Combined view actions
   setView: (zoom: number, pan: Vec2) => set({ zoom, pan }),
 }));
@@ -103,3 +124,6 @@ export const useSetZoom = () => useUIStore((state) => state.setZoom);
 export const useSetPan = () => useUIStore((state) => state.setPan);
 export const useUpdatePan = () => useUIStore((state) => state.updatePan);
 export const useSetView = () => useUIStore((state) => state.setView);
+export const useInspector = () => useUIStore((state) => state.inspector);
+export const useOpenInspector = () => useUIStore((state) => state.openInspector);
+export const useCloseInspector = () => useUIStore((state) => state.closeInspector);
