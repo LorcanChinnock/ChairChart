@@ -120,6 +120,31 @@ vi.mock('../../store/ui-store', () => ({
   useSelection: vi.fn(() => ({ selectedIds: [], selectionRect: null })),
 }))
 
+// Mock the plan store
+vi.mock('../../store/plan-store', () => ({
+  useTables: vi.fn(() => []),
+  useSelectedTableIds: vi.fn(() => []),
+  useSelectTable: vi.fn(() => vi.fn()),
+  useClearTableSelection: vi.fn(() => vi.fn()),
+  useUpdateTable: vi.fn(() => vi.fn()),
+}))
+
+// Mock screen-to-world transforms
+vi.mock('../../utils/canvasTransforms', () => ({
+  screenToWorld: vi.fn(() => ({ x: 0, y: 0 })),
+}))
+
+// Mock components that require canvas
+vi.mock('../TableNode', () => ({
+  __esModule: true,
+  default: () => <div data-testid="table-node">Table</div>,
+}))
+
+vi.mock('../Toolbar', () => ({
+  __esModule: true,
+  default: () => <div data-testid="toolbar">Toolbar</div>,
+}))
+
 describe('CanvasStage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -160,12 +185,12 @@ describe('CanvasStage', () => {
   })
 
   describe('Rendering', () => {
-    it('should render canvas stage with grid and demo node', () => {
+    it('should render canvas stage with grid and toolbar', () => {
       render(<CanvasStage />)
       
       expect(screen.getByTestId('stage')).toBeInTheDocument()
-      expect(screen.getAllByTestId('layer')).toHaveLength(2) // grid + nodes layer
-      expect(screen.getByTestId('rect')).toBeInTheDocument() // demo node
+      expect(screen.getAllByTestId('layer')).toHaveLength(2) // grid + tables layer
+      expect(screen.getByTestId('toolbar')).toBeInTheDocument()
     })
 
     it('should have proper ARIA attributes', () => {
@@ -248,7 +273,7 @@ describe('CanvasStage', () => {
       container.focus()
       
       await user.keyboard('1')
-      // Fit view logic depends on demo node ref, just verify no crash
+      // Fit view logic for tables, just verify no crash
       expect(container).toBeInTheDocument()
     })
 
@@ -316,23 +341,20 @@ describe('CanvasStage', () => {
     })
   })
 
-  describe('Demo node behavior', () => {
-    it('should render demo node with proper properties', () => {
+  describe('Table rendering', () => {
+    it('should render tables layer', () => {
       render(<CanvasStage />)
       
-      const demoNode = screen.getByTestId('rect')
-      expect(demoNode).toHaveAttribute('data-x', '100')
-      expect(demoNode).toHaveAttribute('data-y', '100')
-      expect(demoNode).toHaveAttribute('data-width', '160')
-      expect(demoNode).toHaveAttribute('data-height', '100')
-      expect(demoNode).toHaveAttribute('data-fill', '#3b82f6')
+      const layers = screen.getAllByTestId('layer')
+      const tablesLayer = layers.find(layer => layer.getAttribute('data-name') === 'tables')
+      expect(tablesLayer).toBeInTheDocument()
     })
 
-    it('should be draggable', () => {
+    it('should render toolbar for adding tables', () => {
       render(<CanvasStage />)
       
-      const demoNode = screen.getByTestId('rect')
-      expect(demoNode).toHaveAttribute('data-draggable', 'true')
+      const toolbar = screen.getByTestId('toolbar')
+      expect(toolbar).toBeInTheDocument()
     })
   })
 

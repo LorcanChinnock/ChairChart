@@ -1,9 +1,13 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Stage, Layer, Line, Rect } from "react-konva";
+import { Stage, Layer, Line } from "react-konva";
 import type Konva from "konva";
 import { useZoom, usePan, useSetPan, useSetView } from "../store/ui-store";
+import { useTables, useSelectedTableIds, useSelectTable, useClearTableSelection, useUpdateTable } from "../store/plan-store";
+import { screenToWorld } from "../utils/canvasTransforms";
+import TableNode from "./TableNode";
+import Toolbar from "./Toolbar";
 
 type Vec2 = { x: number; y: number };
 
@@ -112,9 +116,17 @@ export default function CanvasStage() {
   const [isMiddlePanning, setIsMiddlePanning] = useState(false);
   const [isLeftPanning, setIsLeftPanning] = useState(false);
   const [isNodeDragging, setIsNodeDragging] = useState(false);
+  const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false); // Always start in light mode
   const lastPointerRef = useRef<Vec2 | null>(null);
+
+  // Table management state
+  const tables = useTables();
+  const selectedTableIds = useSelectedTableIds();
+  const selectTable = useSelectTable();
+  const clearTableSelection = useClearTableSelection();
+  const updateTable = useUpdateTable();
 
   const isPanning = isSpaceDown || isMiddlePanning || isLeftPanning;
 
@@ -190,10 +202,29 @@ export default function CanvasStage() {
     [animateViewTo, pan.x, pan.y, zoom]
   );
 
-  // Demo node setup (snapping utilities)
-  const demoRef = useRef<Konva.Rect>(null);
-  const GRID = 20;
-  const snap = (v: number) => Math.round(v / GRID) * GRID;
+  // Table event handlers
+  const handleTableSelect = useCallback((tableId: string) => {
+    selectTable(tableId);
+  }, [selectTable]);
+
+  const handleTableDragStart = useCallback((tableId: string) => {
+    setIsNodeDragging(true);
+    setDraggingTableId(tableId);
+  }, []);
+
+  const handleTableDragEnd = useCallback((tableId: string, position: Vec2) => {
+    setIsNodeDragging(false);
+    setDraggingTableId(null);
+    updateTable(tableId, { position });
+  }, [updateTable]);
+
+  const handleStageClick = useCallback(() => {
+    // Clear table selection when clicking on empty space
+    clearTableSelection();
+  }, [clearTableSelection]);
+
+  // Calculate current canvas center in world coordinates for toolbar
+  const canvasCenter = screenToWorld({ x: width / 2, y: height / 2 }, { zoom, pan });
 
   // Wheel: zoom with ctrl/meta; otherwise pan
   const onWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
@@ -256,28 +287,10 @@ export default function CanvasStage() {
         return;
       }
 
-      // Fit-to-view (1) for demo node
+      // Future: Fit-to-view for selected tables (1)
       if (e.key === "1") {
         e.preventDefault();
-        const node = demoRef.current;
-        if (node) {
-          const rectX = node.x();
-          const rectY = node.y();
-          const rectW = node.width();
-          const rectH = node.height();
-          if (rectW > 0 && rectH > 0) {
-            const padding = 40; // screen-space padding
-            const availW = Math.max(1, width - padding * 2);
-            const availH = Math.max(1, height - padding * 2);
-            const scaleFit = clamp(Math.min(availW / rectW, availH / rectH), 0.1, 8);
-            const centerWorld = { x: rectX + rectW / 2, y: rectY + rectH / 2 };
-            const posFit = {
-              x: width / 2 - centerWorld.x * scaleFit,
-              y: height / 2 - centerWorld.y * scaleFit,
-            };
-            animateViewTo(scaleFit, posFit, 220);
-          }
-        }
+        // TODO: Implement fit-to-view for selected tables
         return;
       }
 
@@ -337,6 +350,7 @@ export default function CanvasStage() {
     if (e.evt.button === 0 && !(e.evt.ctrlKey || e.evt.metaKey)) {
       if (stage && e.target === stage) {
         cancelZoomAnim();
+        handleStageClick(); // Clear table selection
         const p = stage.getPointerPosition();
         if (p) {
           lastPointerRef.current = p;
@@ -344,7 +358,7 @@ export default function CanvasStage() {
         }
       }
     }
-  }, [cancelZoomAnim, isNodeDragging]);
+  }, [cancelZoomAnim, isNodeDragging, handleStageClick]);
   const onMouseUp = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     if (e.evt.button === 1) {
       setIsMiddlePanning(false);
@@ -426,45 +440,29 @@ export default function CanvasStage() {
         }}
       >
         <GridLayer width={width} height={height} scale={zoom} offset={pan} isDarkMode={isDarkMode} />
-        {/* Demo node layer */}
-        <Layer name="nodes">
-          <Rect
-            ref={demoRef}
-            x={100}
-            y={100}
-            width={160}
-            height={100}
-            cornerRadius={8}
-            fill="#3b82f6"
-            stroke="#1e40af"
-            strokeWidth={1}
-            opacity={0.9}
-            draggable
-            dragBoundFunc={(pos) => ({ x: snap(pos.x), y: snap(pos.y) })}
-            onMouseDown={(e) => {
-              // prevent Stage from initiating manual panning
-              e.cancelBubble = true;
-            }}
-            onDragStart={(e) => {
-              e.cancelBubble = true;
-              setIsNodeDragging(true);
-            }}
-            onDragEnd={(e) => {
-              e.cancelBubble = true;
-              setIsNodeDragging(false);
-              // ensure final snap (Konva already applied dragBoundFunc, but keep deterministic)
-              const node = demoRef.current;
-              if (node) {
-                node.position({ x: snap(node.x()), y: snap(node.y()) });
-              }
-            }}
-            shadowColor="black"
-            shadowBlur={4}
-            shadowOpacity={0.2}
-          />
+        {/* Tables layer */}
+        <Layer name="tables">
+          {tables.map((table) => (
+            <TableNode
+              key={table.id}
+              table={table}
+              isSelected={selectedTableIds.includes(table.id)}
+              scale={zoom}
+              isDragging={draggingTableId === table.id}
+              onSelect={handleTableSelect}
+              onDragStart={handleTableDragStart}
+              onDragEnd={handleTableDragEnd}
+            />
+          ))}
         </Layer>
         {/* Future content layers will go above */}
       </Stage>
+      
+      {/* Toolbar */}
+      <Toolbar 
+        isDarkMode={isDarkMode}
+        canvasCenter={canvasCenter}
+      />
       
       {/* Dark mode toggle */}
       <div className="absolute top-4 right-4 z-10 select-none">
@@ -573,8 +571,7 @@ export default function CanvasStage() {
                   ["Zoom", "Ctrl + Scroll"], 
                   ["Zoom In", "+"],
                   ["Zoom Out", "-"],
-                  ["Reset View", "0"],
-                  ["Fit Demo", "1"]
+                  ["Reset View", "0"]
                 ].map(([label, key]) => (
                   <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ color: isDarkMode ? "#cbd5e1" : "#6b7280" }}>{label}</span>
